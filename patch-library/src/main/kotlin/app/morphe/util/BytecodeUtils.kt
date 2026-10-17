@@ -300,42 +300,6 @@ fun MutableClass.transformMethods(transform: MutableMethod.() -> MutableMethod) 
 }
 
 /**
- * Inject a call to a method that hides a view.
- *
- * @param insertIndex The index to insert the call at.
- * @param viewRegister The register of the view to hide.
- * @param classDescriptor The descriptor of the class that contains the method.
- * @param targetMethod The name of the method to call.
- */
-fun MutableMethod.injectHideViewCall(
-    insertIndex: Int,
-    viewRegister: Int,
-    classDescriptor: String,
-    targetMethod: String,
-) = addInstruction(
-    insertIndex,
-    "invoke-static { v$viewRegister }, $classDescriptor->$targetMethod(Landroid/view/View;)V",
-)
-
-/**
- * Inject a call to a method that hides a view.
- *
- * @param moveIndex The index of MOVE_RESULT_OBJECT.
- * @param classDescriptor The descriptor of the class that contains the method.
- * @param targetMethod The name of the method to call.
- */
-fun MutableMethod.injectHideViewCall(
-    moveIndex: Int,
-    classDescriptor: String,
-    targetMethod: String,
-) = injectHideViewCall(
-    moveIndex + 1,
-    getInstruction<OneRegisterInstruction>(moveIndex).registerA,
-    classDescriptor,
-    targetMethod
-)
-
-/**
  * Inserts instructions at a given index, using the existing control flow label at that index.
  * Inserted instructions can have its own control flow labels as well.
  *
@@ -1154,7 +1118,7 @@ fun BytecodePatchContext.forEachLiteralValueInstruction(
         filters = listOf(
             literal(literal)
         )
-    ).matchAllMethodIndicesForEach { index ->
+    ).matchAllMethodIndicesForEach(requireMatches = false) { index ->
         block.invoke(this, index)
     }
 }
@@ -1688,7 +1652,7 @@ private fun MutableMethod.overrideReturnValue(value: String?, returnLate: Boolea
  * Remove the given AccessFlags from the field.
  */
 fun MutableField.removeFlags(vararg flags: AccessFlags) {
-    val bitField = flags.map { it.value }.reduce { acc, flag -> acc and flag }
+    val bitField = flags.map { it.value }.reduce { acc, flag -> acc or flag }
     this.accessFlags = this.accessFlags and bitField.inv()
 }
 
