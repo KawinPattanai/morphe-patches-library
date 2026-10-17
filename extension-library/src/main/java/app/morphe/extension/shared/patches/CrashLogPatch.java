@@ -27,6 +27,7 @@ import static app.morphe.extension.shared.StringRef.str;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -35,6 +36,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.os.Looper;
+import android.os.Process;
 import android.provider.MediaStore;
 import android.widget.Toast;
 
@@ -293,6 +295,9 @@ public final class CrashLogPatch {
                 + "Device: " + Build.MANUFACTURER + " " + Build.MODEL + " (" + Build.DEVICE + ")\n"
                 + "Android: " + Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ")\n"
                 + "ABIs: " + Arrays.toString(Build.SUPPORTED_ABIS) + "\n"
+                + "Process: " + (Process.is64Bit() ? "64-bit" : "32-bit") + "\n"
+                + "RAM: " + getRamInfo(context) + "\n"
+                + "Heap: " + getHeapInfo() + "\n"
                 + "Thread: " + thread.getName() + "\n"
                 + "\nStack trace:\n" + stackTrace;
 
@@ -302,6 +307,29 @@ public final class CrashLogPatch {
         }
 
         return crashLog;
+    }
+
+    private static String getRamInfo(Context context) {
+        ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (activityManager == null) {
+            return "Unknown";
+        }
+
+        ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
+        activityManager.getMemoryInfo(memoryInfo);
+
+        long availMb = memoryInfo.availMem / (1024 * 1024);
+        long totalMb = memoryInfo.totalMem / (1024 * 1024);
+
+        return availMb + " MB available / " + totalMb + " MB" + (memoryInfo.lowMemory ? " (low memory)" : "");
+    }
+
+    private static String getHeapInfo() {
+        Runtime runtime = Runtime.getRuntime();
+        long usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
+        long maxMb = runtime.maxMemory() / (1024 * 1024);
+
+        return usedMb + " MB used / " + maxMb + " MB";
     }
 
     private static String getInstalledVersion(Context context, String packageName) {

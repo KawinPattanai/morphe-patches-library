@@ -1,3 +1,38 @@
+# [1.9.0-dev.9](https://github.com/MorpheApp/morphe-patches-library/compare/v1.9.0-dev.8...v1.9.0-dev.9) (2026-10-14)
+
+
+### Bug Fixes
+
+* Optimize log buffer capture and dialog soft input resize ([#66](https://github.com/MorpheApp/morphe-patches-library/issues/66)) ([18fd7ec](https://github.com/MorpheApp/morphe-patches-library/commit/18fd7ec6b80150360057a467addab8fc022f8f8c))
+
+# [1.9.0-dev.8](https://github.com/MorpheApp/morphe-patches-library/compare/v1.9.0-dev.7...v1.9.0-dev.8) (2026-10-12)
+
+
+### Features
+
+* **BytecodeUtils:** Add helper method to add an arbitrary number of additional registers ([ded5f49](https://github.com/MorpheApp/morphe-patches-library/commit/ded5f4939f7e049ae062f8096c633093f369940c))
+
+# [1.9.0-dev.7](https://github.com/MorpheApp/morphe-patches-library/compare/v1.9.0-dev.6...v1.9.0-dev.7) (2026-10-11)
+
+
+### Bug Fixes
+
+* **Crash log patch:** Include process and memory details in crash report ([bb7afff](https://github.com/MorpheApp/morphe-patches-library/commit/bb7afff5d245864ae52a4c724b750237edeae83e))
+
+# [1.9.0-dev.6](https://github.com/MorpheApp/morphe-patches-library/compare/v1.9.0-dev.5...v1.9.0-dev.6) (2026-10-11)
+
+
+### Bug Fixes
+
+* Rename Utils method ([ac5eba5](https://github.com/MorpheApp/morphe-patches-library/commit/ac5eba57a0c47a4b3e54f3ba450b13786cef7b3f))
+
+# [1.9.0-dev.5](https://github.com/MorpheApp/morphe-patches-library/compare/v1.9.0-dev.4...v1.9.0-dev.5) (2026-10-11)
+
+
+### Bug Fixes
+
+* **FreeRegisterProvider:** Various fixes/improvements ([#65](https://github.com/MorpheApp/morphe-patches-library/issues/65)) ([af88e2d](https://github.com/MorpheApp/morphe-patches-library/commit/af88e2d92ee26e7681659e833ac8fda996d2ec17))
+
 # [1.9.0-dev.4](https://github.com/MorpheApp/morphe-patches-library/compare/v1.9.0-dev.3...v1.9.0-dev.4) (2026-10-10)
 
 
