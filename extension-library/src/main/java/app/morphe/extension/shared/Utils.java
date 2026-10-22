@@ -85,7 +85,7 @@ public class Utils {
      */
     @SuppressWarnings("SameReturnValue")
     public static String getPatchesReleaseVersion() {
-        return ""; // Value is replaced during patching.
+        return io.github.kawinnext.BuildConfig.PATCH_VERSION;
     }
 
     public static boolean isPreReleasePatches() {

@@ -20,6 +20,8 @@ import app.morphe.extension.shared.settings.Setting;
 @SuppressWarnings({"unused", "deprecation", "DiscouragedApi"})
 public class ResourceUtils {
 
+    public static String fallbackPackageName;
+
     public static boolean useActivityContextIfAvailable = true;
 
     private ResourceUtils() {
@@ -61,6 +63,12 @@ public class ResourceUtils {
      */
     public static int getIdentifier(Context context, @Nullable ResourceType type, String name) {
         try {
+            if (fallbackPackageName != null) {
+                int result = context.getResources().getIdentifier(name,
+                        type == null ? null : type.type,
+                        fallbackPackageName);
+                if (result != 0) return result;
+            }
             return context.getResources().getIdentifier(name,
                     type == null ? null : type.type,
                     context.getPackageName());
