@@ -37,24 +37,51 @@ import app.morphe.patcher.extensions.InstructionExtensions.getInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.instructions
 import app.morphe.patcher.extensions.InstructionExtensions.removeInstruction
 import app.morphe.patcher.literal
-import app.morphe.patcher.patch.BytecodePatchContext
 import app.morphe.patcher.patch.PatchException
+import app.morphe.patcher.patch.mutableClassDefBy
+import app.morphe.patcher.patch.mutableClassDefByOrNull
 import app.morphe.patcher.resource.ResourceType
 import app.morphe.patcher.resource.resourceId
+import app.morphe.patcher.util.getReference
+import app.morphe.patcher.util.numberOfParameterRegistersLogical
+import app.morphe.patcher.util.p0Register
 import app.morphe.patcher.util.proxy.mutableTypes.MutableClass
 import app.morphe.patcher.util.proxy.mutableTypes.MutableField
 import app.morphe.patcher.util.proxy.mutableTypes.MutableField.Companion.toMutable
 import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod
 import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod.Companion.toMutable
+import app.morphe.patcher.util.registersUsed
+import app.morphe.patcher.util.returnEarly
 import app.morphe.patcher.util.smali.ExternalLabel
+import app.morphe.patcher.util.writeRegister
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.Opcode.GOTO
+import com.android.tools.smali.dexlib2.Opcode.GOTO_16
+import com.android.tools.smali.dexlib2.Opcode.GOTO_32
+import com.android.tools.smali.dexlib2.Opcode.IF_EQ
+import com.android.tools.smali.dexlib2.Opcode.IF_EQZ
+import com.android.tools.smali.dexlib2.Opcode.IF_GE
+import com.android.tools.smali.dexlib2.Opcode.IF_GEZ
+import com.android.tools.smali.dexlib2.Opcode.IF_GT
+import com.android.tools.smali.dexlib2.Opcode.IF_GTZ
+import com.android.tools.smali.dexlib2.Opcode.IF_LE
+import com.android.tools.smali.dexlib2.Opcode.IF_LEZ
+import com.android.tools.smali.dexlib2.Opcode.IF_LT
+import com.android.tools.smali.dexlib2.Opcode.IF_LTZ
+import com.android.tools.smali.dexlib2.Opcode.IF_NE
+import com.android.tools.smali.dexlib2.Opcode.IF_NEZ
 import com.android.tools.smali.dexlib2.Opcode.MOVE_RESULT
 import com.android.tools.smali.dexlib2.Opcode.MOVE_RESULT_OBJECT
 import com.android.tools.smali.dexlib2.Opcode.MOVE_RESULT_WIDE
+import com.android.tools.smali.dexlib2.Opcode.PACKED_SWITCH
 import com.android.tools.smali.dexlib2.Opcode.RETURN
 import com.android.tools.smali.dexlib2.Opcode.RETURN_OBJECT
+import com.android.tools.smali.dexlib2.Opcode.RETURN_VOID
+import com.android.tools.smali.dexlib2.Opcode.RETURN_VOID_NO_BARRIER
 import com.android.tools.smali.dexlib2.Opcode.RETURN_WIDE
+import com.android.tools.smali.dexlib2.Opcode.SPARSE_SWITCH
+import com.android.tools.smali.dexlib2.Opcode.THROW
 import com.android.tools.smali.dexlib2.iface.ClassDef
 import com.android.tools.smali.dexlib2.iface.Method
 import com.android.tools.smali.dexlib2.iface.MethodParameter
@@ -75,12 +102,6 @@ import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation
 import com.android.tools.smali.dexlib2.util.MethodUtil
 import java.util.EnumSet
-
-private val moveOpcodes: EnumSet<Opcode> = EnumSet.of(
-    Opcode.MOVE, Opcode.MOVE_FROM16, Opcode.MOVE_16,
-    Opcode.MOVE_WIDE, Opcode.MOVE_WIDE_FROM16, Opcode.MOVE_WIDE_16,
-    Opcode.MOVE_OBJECT, Opcode.MOVE_OBJECT_FROM16, Opcode.MOVE_OBJECT_16
-)
 
 /**
  * Find the instruction index used for a toString() StringBuilder write of a given String name.
@@ -187,7 +208,6 @@ private fun Method.findInstructionIndexFromToString(fieldName: String, isField: 
  *
  * @param fieldName The name of the field to find. Partial matches are allowed.
  */
-context(patchContext: BytecodePatchContext)
 fun Method.findMethodFromToString(fieldName: String) : MutableMethod {
     val methodUsageIndex = findInstructionIndexFromToString(fieldName, false)
     return getInstruction(methodUsageIndex).getReference<MethodReference>()!!.getMutableMethod()
@@ -201,72 +221,6 @@ fun Method.findMethodFromToString(fieldName: String) : MutableMethod {
 fun Method.findFieldFromToString(fieldName: String) : FieldReference {
     val methodUsageIndex = findInstructionIndexFromToString(fieldName, true)
     return getInstruction<ReferenceInstruction>(methodUsageIndex).getReference<FieldReference>()!!
-}
-
-// TODO If this function remains unchanged for a while then move this to morphe-patcher.
-/**
- * Iterate across all method indexes that match an [InstructionFilter].
- *
- * This is only a simple helper method to call [Fingerprint.matchAllMethodIndicesForEach].
- *
- * @param requireMatches If true and no matches exist, an exception is thrown.
- * @param block Method iteration block. Indexes are iterated from last to first.
- */
-context(patchContext: BytecodePatchContext)
-fun InstructionFilter.matchAllMethodIndicesForEach(
-    requireMatches: Boolean = true,
-    block: MutableMethod.(Int) -> Unit
-) = Fingerprint(filters = listOf(this)).matchAllMethodIndicesForEach(
-    requireMatches,
-    block
-)
-
-/**
- * Verify exactly one match exists. This is the equivalent of calling [matchAll]
- * with a range of `1 .. 1`. This can be useful for fragile fingerprints that may match
- * unrelated methods. This is an exhaustive search and will always be slower than the first match
- * that [match] provides.
- *
- * An exception is thrown if no matches exist or more than 1 match exists.
- */
-context(patchContext: BytecodePatchContext)
-fun Fingerprint.matchSingle() = matchAll(1 .. 1).first()
-
-// TODO If this function remains unchanged for a while then move this to morphe-patcher.
-/**
- * Iterate across all method indexes that match an [Fingerprint].
- * At this time, only a single [InstructionFilter] is supported.
- *
- * This differs from using [matchAll] as this matches multiple instruction
- * indexes in the same method and [matchAll] matches only the first index
- * of each method.
- *
- * @param requireMatches If true and no matches exist, an exception is thrown.
- * @param block Method iteration block. Indexes are iterated from last to first.
- */
-context(patchContext: BytecodePatchContext)
-fun Fingerprint.matchAllMethodIndicesForEach(
-    requireMatches: Boolean = true,
-    block: MutableMethod.(Int) -> Unit
-) {
-    requireNotNull(filters)
-    require(filters!!.size == 1) {
-        "Fingerprint must contain exactly 1 filter"
-    }
-
-    val matches = matchAllOrNull()
-    if (matches == null) {
-        if (requireMatches) throw PatchException("Could not find any matches of $this")
-        return
-    }
-
-    val filter = filters!!.first()
-    matches.forEach { match ->
-        val method = match.method
-        method.findInstructionIndicesReversedOrThrow(filter).forEach { index ->
-            block(method, index)
-        }
-    }
 }
 
 /**
@@ -517,7 +471,7 @@ fun Method.containsLiteralInstruction(literal: Double) = indexOfFirstLiteralInst
  * @param targetClass the class to start traversing the class hierarchy from.
  * @param callback function that is called for every class in the hierarchy.
  */
-fun BytecodePatchContext.traverseClassHierarchy(targetClass: MutableClass, callback: MutableClass.() -> Unit) {
+fun traverseClassHierarchy(targetClass: MutableClass, callback: MutableClass.() -> Unit) {
     callback(targetClass)
 
     targetClass.superclass ?: return
@@ -528,21 +482,10 @@ fun BytecodePatchContext.traverseClassHierarchy(targetClass: MutableClass, callb
 }
 
 /**
- * Get the [Reference] of an [Instruction] as [T].
- *
- * @param T The type of [Reference] to cast to.
- * @return The [Reference] as [T] or null
- * if the [Instruction] is not a [ReferenceInstruction] or the [Reference] is not of type [T].
- * @see ReferenceInstruction
- */
-inline fun <reified T : Reference> Instruction.getReference() = (this as? ReferenceInstruction)?.reference as? T
-
-/**
  * @return The mutable method for this method call reference.
  */
-context(patchContext: BytecodePatchContext)
 fun MethodReference.getMutableMethod(): MutableMethod {
-    return patchContext.mutableClassDefBy(this.definingClass).methods.first { classMethod ->
+    return mutableClassDefBy(this.definingClass).methods.first { classMethod ->
         MethodUtil.methodSignaturesMatch(classMethod, this@getMutableMethod)
     }
 }
@@ -908,6 +851,8 @@ private fun Method.branchTargetIndex(branchIndex: Int, codeOffsets: IntArray): I
  * Walks the control flow graph forward from [startIndex], following both conditional
  * and unconditional branches to their real targets, searching for all instructions
  * that use [register] as a method call argument, until the register is clobbered.
+ * A wide literal also uses the register after [register], so a write to either register,
+ * including a wide write to the register before it, clobbers the literal.
  *
  * A breadth first search is used so paths are explored in order of how many instructions
  * actually execute before reaching them.
@@ -917,6 +862,7 @@ private fun Method.branchTargetIndex(branchIndex: Int, codeOffsets: IntArray): I
 private fun Method.findAllReachableLiteralEvents(
     startIndex: Int,
     register: Int,
+    isWideLiteral: Boolean,
 ): List<Int> {
     val instructionList = this.implementation?.instructions?.toList() ?: return emptyList()
     val codeOffsets = instructionCodeOffsets()
@@ -932,8 +878,13 @@ private fun Method.findAllReachableLiteralEvents(
         }
         val instruction = instructionList[index]
 
-        if (instruction.writeRegister == register) {
-            continue
+        val writeRegister = instruction.writeRegister
+        if (writeRegister != null) {
+            val writeRegisterEnd = if (instruction.opcode.setsWideRegister()) writeRegister + 1 else writeRegister
+            val literalRegisterEnd = if (isWideLiteral) register + 1 else register
+            if (writeRegister <= literalRegisterEnd && register <= writeRegisterEnd) {
+                continue
+            }
         }
 
         val methodReference = instruction.getReference<MethodReference>()
@@ -975,6 +926,8 @@ private fun Method.findAllReachableLiteralEvents(
 /**
  * Overrides *all* usage of the literal declared at the provided index. This override
  * includes if the literal was used multiple times in the same method.
+ * Each read is overridden once, also if the literal is declared in more than one branch
+ * that reaches it, or if the read is already overridden with the same method.
  */
 fun MutableMethod.insertLiteralOverride(literalIndexStart: Int, extensionMethodDescriptor: String) {
     val useLogging = false
@@ -987,87 +940,97 @@ fun MutableMethod.insertLiteralOverride(literalIndexStart: Int, extensionMethodD
     val literalValue = startInstruction.wideLiteral
     val literalFilter = literal(startInstruction.wideLiteral)
 
-    // Some literals are used multiple times in the same method. Insertions can shift
-    // indices in either direction (forward usage vs. a backward loop-carried usage),
-    // so occurrences are re-scanned each iteration.
-    var processedCount = 0
-    while (true) {
-        val currentMatches = instructions
-            .withIndex()
-            .filter { (_, instruction) -> literalFilter.matches(this, instruction) }
-        if (processedCount >= currentMatches.size) return
+    val moveResultOpcode = if (extensionMethodDescriptor.endsWith(";")) {
+        MOVE_RESULT_OBJECT
+    } else if (extensionMethodDescriptor.endsWith("J") ||
+        extensionMethodDescriptor.endsWith("D")
+    ) {
+        MOVE_RESULT_WIDE
+    } else {
+        MOVE_RESULT
+    }
 
-        val literalIndex = currentMatches[processedCount++].index
-        val literalInstruction = getInstruction<OneRegisterInstruction>(literalIndex)
-        val literalRegister = literalInstruction.registerA
+    // Some literals are used multiple times in the same method, and the literals declared
+    // in different branches can reach the same read. All the reads are collected before
+    // anything is inserted, so each read is overridden once.
+    val moveResultIndices = HashSet<Int>()
+    instructions.withIndex()
+        .filter { (_, instruction) -> literalFilter.matches(this, instruction) }
+        .forEach { (literalIndex, instruction) ->
+            val literalInstruction = instruction as OneRegisterInstruction
 
-        val usageIndices = findAllReachableLiteralEvents(literalIndex + 1, literalRegister)
-        if (usageIndices.isEmpty()) {
-            if (useLogging) {
-                println("""
-                        Ignoring literal with no reachable usage (clobbered or dead)
-                        literalValue: $literalValue
-                        literalIndex: $literalIndex
-                        method: $this
-                    """
-                )
-            }
-            continue
-        }
-
-        val moveResultOpcode = if (extensionMethodDescriptor.endsWith(";")) {
-            MOVE_RESULT_OBJECT
-        } else if (extensionMethodDescriptor.endsWith("J") ||
-            extensionMethodDescriptor.endsWith("D")
-        ) {
-            MOVE_RESULT_WIDE
-        } else {
-            MOVE_RESULT
-        }
-
-        usageIndices.sortedDescending().forEach { usageIndex ->
-            val moveResultIndex = usageIndex + 1
-            val moveResultInstruction = getInstruction(moveResultIndex)
-            if (moveResultInstruction.opcode != moveResultOpcode) {
-                // Method return value is not used.
-                if (useLogging) println(
-                    """
-                        Ignoring literal with ignored return value
-                        literalValue: $literalValue
-                        literalIndex: $literalIndex
-                        literalMethodCall: ${getInstruction<ReferenceInstruction>(usageIndex).reference}
-                        method: $this"
-                    """
-                )
+            val usageIndices = findAllReachableLiteralEvents(
+                literalIndex + 1,
+                literalInstruction.registerA,
+                literalInstruction.opcode.setsWideRegister()
+            )
+            if (usageIndices.isEmpty()) {
+                if (useLogging) {
+                    println("""
+                            Ignoring literal with no reachable usage (clobbered or dead)
+                            literalValue: $literalValue
+                            literalIndex: $literalIndex
+                            method: $this
+                        """
+                    )
+                }
                 return@forEach
             }
 
-            val isWide = moveResultOpcode == MOVE_RESULT_WIDE
-            val register = (moveResultInstruction as OneRegisterInstruction).registerA
-            val endRegister = if (isWide) register + 1 else register
-            val operation = if (endRegister < 16) {
-                if (isWide) {
-                    "invoke-static { v$register, v$endRegister }"
-                } else {
-                    "invoke-static { v$register }"
+            usageIndices.forEach { usageIndex ->
+                if (getInstruction(usageIndex + 1).opcode != moveResultOpcode) {
+                    // Method return value is not used.
+                    if (useLogging) println(
+                        """
+                            Ignoring literal with ignored return value
+                            literalValue: $literalValue
+                            literalIndex: $literalIndex
+                            literalMethodCall: ${getInstruction<ReferenceInstruction>(usageIndex).reference}
+                            method: $this"
+                        """
+                    )
+                    return@forEach
                 }
-            } else {
-                "invoke-static/range { v$register .. v$endRegister }"
-            }
-            val moveResultSmali = when (moveResultOpcode) {
-                MOVE_RESULT_OBJECT -> "move-result-object"
-                MOVE_RESULT_WIDE -> "move-result-wide"
-                else -> "move-result"
-            }
 
-            addInstructions(
-                moveResultIndex + 1,
-                """
-                    $operation, $extensionMethodDescriptor
-                    $moveResultSmali v$register
-                """
-            )
+                moveResultIndices.add(usageIndex + 1)
+            }
         }
+
+    // Inserted from the last read, so the indices of the reads before it stay valid.
+    moveResultIndices.sortedDescending().forEach { moveResultIndex ->
+        // The read is already overridden with the same method, such as by an earlier call.
+        val nextInstruction = instructions.getOrNull(moveResultIndex + 1)
+        if ((nextInstruction?.opcode == Opcode.INVOKE_STATIC || nextInstruction?.opcode == Opcode.INVOKE_STATIC_RANGE) &&
+            nextInstruction.getReference<MethodReference>()?.toString() == extensionMethodDescriptor
+        ) {
+            return@forEach
+        }
+
+        val isWide = moveResultOpcode == MOVE_RESULT_WIDE
+        val register = getInstruction<OneRegisterInstruction>(moveResultIndex).registerA
+        val endRegister = if (isWide) register + 1 else register
+        val operation = if (endRegister < 16) {
+            if (isWide) {
+                "invoke-static { v$register, v$endRegister }"
+            } else {
+                "invoke-static { v$register }"
+            }
+        } else {
+            "invoke-static/range { v$register .. v$endRegister }"
+        }
+        val moveResultSmali = when (moveResultOpcode) {
+            MOVE_RESULT_OBJECT -> "move-result-object"
+            MOVE_RESULT_WIDE -> "move-result-wide"
+            else -> "move-result"
+        }
+
+        addInstructions(
+            moveResultIndex + 1,
+            """
+                $operation, $extensionMethodDescriptor
+                $moveResultSmali v$register
+            """
+        )
     }
 }
 
@@ -1087,7 +1050,11 @@ fun MutableMethod.insertLiteralOverride(literalIndexStart: Int, override: Boolea
     val literalRegister = startInstruction.registerA
     val overrideValue = if (override) "0x1" else "0x0"
 
-    val usageIndices = findAllReachableLiteralEvents(literalIndexStart + 1, literalRegister)
+    val usageIndices = findAllReachableLiteralEvents(
+        literalIndexStart + 1,
+        literalRegister,
+        startInstruction.opcode.setsWideRegister()
+    )
     if (usageIndices.isEmpty()) return
 
     usageIndices.sortedDescending().forEach { usageIndex ->
@@ -1103,119 +1070,6 @@ fun MutableMethod.insertLiteralOverride(literalIndexStart: Int, override: Boolea
             )
         }
     }
-}
-
-/**
- * Called for _all_ methods with the given literal value.
- * Method indices are iterated from last to first.
- */
-@Deprecated("Instead use Fingerprint literal() with matchAllMethodIndicesForEach()")
-fun BytecodePatchContext.forEachLiteralValueInstruction(
-    literal: Long,
-    block: MutableMethod.(matchingIndex: Int) -> Unit,
-) {
-    Fingerprint(
-        filters = listOf(
-            literal(literal)
-        )
-    ).matchAllMethodIndicesForEach(requireMatches = false) { index ->
-        block.invoke(this, index)
-    }
-}
-
-
-/**
- * Additional registers effectively take the place of the pX parameters (p0, p1, p2, etc.)
- * and contain the original contents of the method parameters.
- * Added registers always start at index: `originalMethod.implementation!!.registerCount` of the
- * original uncloned method.
- *
- * **Fingerprint match indexes will be increased positively by [numberOfParameterRegistersLogical]**.
- */
-context(patchContext: BytecodePatchContext)
-fun Method.cloneParameters() = cloneParameters(
-    patchContext.mutableClassDefBy(definingClass)
-)
-
-/**
- * Additional registers effectively take the place of the pX parameters (p0, p1, p2, etc.)
- * and contain the original contents of the method parameters.
- * Added registers always start at index: `originalMethod.implementation!!.registerCount` of the
- * original uncloned method.
- *
- * **Fingerprint match indexes will be increased positively by [numberOfParameterRegistersLogical]**.
- */
-internal fun Method.cloneParameters(mutableClass : MutableClass) : MutableMethod {
-    check (!AccessFlags.STATIC.isSet(accessFlags) || parameters.isNotEmpty()) {
-        "Static method has no no parameter registers to preserve"
-    }
-
-    val clonedMethod = cloneMutable(
-        additionalRegisters = numberOfParameterRegisters
-    )
-
-    // Replace existing method with cloned with more registers.
-    mutableClass.methods.apply {
-        remove(this@cloneParameters)
-        add(clonedMethod)
-    }
-
-    return clonedMethod
-}
-
-/**
- * Clones this method with additional free registers and replaces the original method in its class.
- *
- * In most cases, if you only need a few extra registers and the method has parameters,
- * then instead use [cloneParameters] and use the p0-px registers as your free registers.
- * `addFreeRegisters()` is intended for when there are not enough parameter registers.
- *
- * Instructions are added to the start of the cloned method to copy the pX parameter registers
- * (p0, p1, p2, etc.) to the registers they used in the original method, so all existing code
- * is unchanged and can still access the parameters. The free registers are numbered from
- * `registerCount` of the original method up to `registerCount + numberOfAdditionalRegisters - 1`,
- * and are free to use anywhere after the added instructions.
- *
- * Because the free registers come after all existing registers, they may be too large for
- * instructions that only accept 4-bit registers (v0 - v15).
- *
- * This method becomes stale and must not be modified after calling this,
- * instead the returned cloned method must be used.
- *
- * @param numberOfAdditionalRegisters The number of free registers to add.
- * @return The cloned method that replaced this method, and the number of instructions added
- *         to the start of the cloned method. Instruction indexes of this method, such as
- *         Fingerprint match indexes, must be increased by the number of added instructions.
- */
-context(patchContext: BytecodePatchContext)
-fun MutableMethod.addFreeRegisters(numberOfAdditionalRegisters: Int) = addFreeRegisters(
-    numberOfAdditionalRegisters,
-    patchContext.mutableClassDefBy(definingClass)
-)
-
-internal fun MutableMethod.addFreeRegisters(
-    numberOfAdditionalRegisters: Int,
-    mutableClass: MutableClass
-): Pair<MutableMethod, Int> {
-    check(numberOfAdditionalRegisters > 0) {
-        "Number of additional registers must be greater than zero: $numberOfAdditionalRegisters"
-    }
-    checkNotNull(implementation) {
-        "Method has no implementation: $this"
-    }
-
-    val clonedMethod = cloneMutable(
-        additionalRegisters = numberOfAdditionalRegisters
-    )
-    val addedInstructions = clonedMethod.instructions.size - instructions.size
-
-    // Replace existing method with cloned with more registers.
-    mutableClass.methods.apply {
-        remove(this@addFreeRegisters)
-        add(clonedMethod)
-    }
-
-    return Pair(clonedMethod, addedInstructions)
 }
 
 /**
@@ -1314,394 +1168,11 @@ fun Method.cloneMutable(
 fun Boolean.toHexString(): String = if (this) "0x1" else "0x0"
 
 /**
- * @return The number of registers for all parameters, including p0.
- * This includes 2 registers for each wide parameter.
- */
-val Method.numberOfParameterRegisters: Int
-    get() {
-        var count = 0
-
-        if (!AccessFlags.STATIC.isSet(accessFlags)) {
-            count += 1
-        }
-
-        for (param in parameters) {
-            count += when (param.type) {
-                "J", "D" -> 2   // wide
-                else -> 1       // normal
-            }
-        }
-
-        return count
-    }
-
-/**
- * @return The number of parameter registers, including p0 as 'this' if method is not static.
- *   This differs from [numberOfParameterRegisters] in that long/double parameters are counted only once each.
- */
-val Method.numberOfParameterRegistersLogical: Int
-    get() = parameters.count() + if (AccessFlags.STATIC.isSet(accessFlags)) {
-        0
-    } else {
-        1
-    }
-
-/**
- * @return the actual register number of p0 for this method.
- * Throws if the method has no implementation.
- */
-val Method.p0Register: Int
-    get() {
-        val impl = implementation ?: throw IllegalStateException("Method has no implementation: $this")
-        var paramRegs = 0
-
-        // Count explicit parameters (wide types take 2 registers).
-        for (type in this.parameterTypes) {
-            paramRegs += if (type == "J" || type == "D") 2 else 1
-        }
-
-        // Add implicit 'this' for non-static methods.
-        if (!AccessFlags.STATIC.isSet(this.accessFlags)) {
-            paramRegs += 1
-        }
-
-        val totalRegs = impl.registerCount
-
-        return totalRegs - paramRegs
-    }
-
-/**
  * Adapted from BiliRoamingX:
  * https://github.com/BiliRoamingX/BiliRoamingX/blob/ae58109f3acdd53ec2d2b3fb439c2a2ef1886221/patches/src/main/kotlin/app/revanced/patches/bilibili/utils/Extenstions.kt#L151
  */
 fun MutableMethod.fiveRegisters(index: Int) = getInstruction<FiveRegisterInstruction>(index)
     .registersUsed.joinToString(",") { "v$it" }
-
-private const val RETURN_TYPE_MISMATCH = "Mismatch between override type and Method return type"
-
-/**
- * Overrides the first instruction of a method with a return-void instruction.
- * None of the method code will ever execute.
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly() {
-    check(returnType.first() == 'V') {
-        RETURN_TYPE_MISMATCH
-    }
-    overrideReturnValue(false.toHexString(), false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant `Boolean` return value.
- * None of the original method code will execute.
- *
- * For methods that return an object or any array type, calling this method with `false`
- * will force the method to return a `null` value.
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: Boolean) {
-    check(returnType.first() == 'Z') {
-        RETURN_TYPE_MISMATCH
-    }
-    overrideReturnValue(value.toHexString(), false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant `Byte` return value.
- * None of the original method code will execute.
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: Byte) {
-    check(returnType.first() == 'B') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.toString(), false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant `Short` return value.
- * None of the original method code will execute.
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: Short) {
-    check(returnType.first() == 'S') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.toString(), false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant `Char` return value.
- * None of the original method code will execute.
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: Char) {
-    check(returnType.first() == 'C') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.code.toString(), false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant `Int` return value.
- * None of the original method code will execute.
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: Int) {
-    check(returnType.first() == 'I') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.toString(), false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant `Long` return value.
- * None of the original method code will execute.
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: Long) {
-    check(returnType.first() == 'J') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue("${value}L", false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant `Float` return value.
- * None of the original method code will execute.
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: Float) {
-    check(returnType.first() == 'F') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue("${value}F", false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant `Double` return value.
- * None of the original method code will execute.
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: Double) {
-    check(returnType.first() == 'D') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.toString(), false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant String return value.
- * None of the original method code will execute.
- *
- * Target method must have return type
- * Ljava/lang/String; or Ljava/lang/CharSequence;
- *
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: String) {
-    check(returnType == "Ljava/lang/String;" || returnType == "Ljava/lang/CharSequence;") {
-        RETURN_TYPE_MISMATCH
-    }
-    overrideReturnValue(value, false)
-}
-
-/**
- * Overrides the first instruction of a method with a constant `NULL` return value.
- * None of the original method code will execute.
- *
- * @param value Value must be `Null`.
- * @see returnLate
- */
-fun MutableMethod.returnEarly(value: Void?) {
-    val returnType = returnType.first()
-    check(returnType == 'L' || returnType == '[') {
-        RETURN_TYPE_MISMATCH
-    }
-    overrideReturnValue(null, false)
-}
-
-/**
- * Overrides all return statements with a constant `Boolean` value.
- * All method code is executed the same as unpatched.
- *
- * For methods that return an object or any array type, calling this method with `false`
- * will force the method to return a `null` value.
- *
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: Boolean) {
-    check(this.returnType.first() == 'Z') {
-        RETURN_TYPE_MISMATCH
-    }
-
-    overrideReturnValue(value.toHexString(), true)
-}
-
-/**
- * Overrides all return statements with a constant `Byte` value.
- * All method code is executed the same as unpatched.
- *
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: Byte) {
-    check(returnType.first() == 'B') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.toString(), true)
-}
-
-/**
- * Overrides all return statements with a constant `Short` value.
- * All method code is executed the same as unpatched.
- *
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: Short) {
-    check(returnType.first() == 'S') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.toString(), true)
-}
-
-/**
- * Overrides all return statements with a constant `Char` value.
- * All method code is executed the same as unpatched.
- *
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: Char) {
-    check(returnType.first() == 'C') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.code.toString(), true)
-}
-
-/**
- * Overrides all return statements with a constant `Int` value.
- * All method code is executed the same as unpatched.
- *
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: Int) {
-    check(returnType.first() == 'I') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.toString(), true)
-}
-
-/**
- * Overrides all return statements with a constant `Long` value.
- * All method code is executed the same as unpatched.
- *
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: Long) {
-    check(returnType.first() == 'J') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue("${value}L", true)
-}
-
-/**
- * Overrides all return statements with a constant `Float` value.
- * All method code is executed the same as unpatched.
- *
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: Float) {
-    check(returnType.first() == 'F') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue("${value}F", true)
-}
-
-/**
- * Overrides all return statements with a constant `Double` value.
- * All method code is executed the same as unpatched.
- *
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: Double) {
-    check(returnType.first() == 'D') { RETURN_TYPE_MISMATCH }
-    overrideReturnValue(value.toString(), true)
-}
-
-/**
- * Overrides all return statements with a constant String value.
- * All method code is executed the same as unpatched.
- *
- * Target method must have return type
- * Ljava/lang/String; or Ljava/lang/CharSequence;
- *
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: String) {
-    check(returnType == "Ljava/lang/String;" || returnType == "Ljava/lang/CharSequence;") {
-        RETURN_TYPE_MISMATCH
-    }
-    overrideReturnValue(value, true)
-}
-
-/**
- * Overrides all return statements with a constant `Null` value.
- * All method code is executed the same as unpatched.
- *
- * @param value Value must be `Null`.
- * @see returnEarly
- */
-fun MutableMethod.returnLate(value: Void?) {
-    val returnType = returnType.first()
-    check(returnType == 'L' || returnType == '[') {
-        RETURN_TYPE_MISMATCH
-    }
-
-    overrideReturnValue(null, true)
-}
-
-private fun MutableMethod.overrideReturnValue(value: String?, returnLate: Boolean) {
-    val instructions = if (value != null && (returnType == "Ljava/lang/String;" || returnType == "Ljava/lang/CharSequence;")) {
-        """
-            const-string v0, "$value"
-            return-object v0
-        """
-    } else when (returnType.first()) {
-        // If return type is an object, always return null.
-        'L', '[' -> {
-            """
-                const/4 v0, 0x0
-                return-object v0
-            """
-        }
-
-        'V' -> {
-            "return-void"
-        }
-
-        'B', 'Z' -> {
-            """
-                const/4 v0, $value
-                return v0
-            """
-        }
-
-        'S', 'C' -> {
-            """
-                const/16 v0, $value
-                return v0
-            """
-        }
-
-        'I', 'F' -> {
-            """
-                const v0, $value
-                return v0
-            """
-        }
-
-        'J', 'D' -> {
-            """
-                const-wide v0, $value
-                return-wide v0
-            """
-        }
-
-        else -> throw Exception("Return type is not supported: $this")
-    }
-
-    if (returnLate) {
-        findInstructionIndicesReversedOrThrow {
-            opcode == RETURN || opcode == RETURN_WIDE || opcode == RETURN_OBJECT
-        }.forEach { index ->
-            addInstructionsAtControlFlowLabel(index, instructions)
-        }
-    } else {
-        addInstructions(0, instructions)
-    }
-}
 
 /**
  * Remove the given AccessFlags from the field.
@@ -1711,7 +1182,7 @@ fun MutableField.removeFlags(vararg flags: AccessFlags) {
     this.accessFlags = this.accessFlags and bitField.inv()
 }
 
-fun BytecodePatchContext.addStaticFieldToExtension(
+fun addStaticFieldToExtension(
     className: String,
     methodName: String,
     fieldName: String,
@@ -1745,7 +1216,6 @@ fun BytecodePatchContext.addStaticFieldToExtension(
     }
 }
 
-context(patchContext: BytecodePatchContext)
 fun setExtensionIsPatchIncluded(patchExtensionClassType: String) {
     val methodName = "isPatchIncluded"
     val returnType = "Z"
@@ -1804,17 +1274,51 @@ fun MutableMethod.addInstructionsToEnd(smaliInstructions: String) =
     this.addInstructionsToEnd(1, smaliInstructions)
 
 /**
- * Overrides the first instruction of a method with a boxed `java.lang.Boolean` return value.
- * None of the method code will ever execute.
+ * This differs from [isUnconditionalBranchInstruction] in that it does not include unconditional goto.
+ *
+ * @return If this instruction is a conditional branch (multiple branch paths).
  */
-fun MutableMethod.returnBoxedBooleanEarly(value: Boolean) {
-    check(returnType == "Ljava/lang/Boolean;" || returnType == "Ljava/lang/Object;") {
-        RETURN_TYPE_MISMATCH
-    }
+internal val Instruction.isConditionalBranchInstruction: Boolean
+    get() = this.opcode in conditionalBranchOpcodes
 
-    addInstructions(0,
-        """
-            sget-object v0, Ljava/lang/Boolean;->${if (value) "TRUE" else "FALSE" }:Ljava/lang/Boolean;
-            return-object v0
-        """.trimIndent())
-}
+/**
+ * @return If this instruction is a GOTO opcode.
+ */
+internal val Instruction.isUnconditionalBranchInstruction: Boolean
+    get() = this.opcode in unconditionalBranchOpcodes
+
+/**
+ * @return If this instruction is a switch opcode.
+ */
+internal val Instruction.isSwitchInstruction: Boolean
+    get() = this.opcode in switchOpcodes
+
+/**
+ * @return If this instruction returns or throws.
+ */
+internal val Instruction.isReturnInstruction: Boolean
+    get() = this.opcode in returnOpcodes
+
+private val conditionalBranchOpcodes: EnumSet<Opcode> = EnumSet.of(
+    IF_EQ, IF_NE, IF_LT, IF_GE, IF_GT, IF_LE,
+    IF_EQZ, IF_NEZ, IF_LTZ, IF_GEZ, IF_GTZ, IF_LEZ
+)
+
+private val unconditionalBranchOpcodes: EnumSet<Opcode> = EnumSet.of(
+    GOTO, GOTO_16, GOTO_32
+)
+
+private val switchOpcodes: EnumSet<Opcode> = EnumSet.of(
+    PACKED_SWITCH, SPARSE_SWITCH
+)
+
+private val returnOpcodes: EnumSet<Opcode> = EnumSet.of(
+    RETURN_VOID, RETURN, RETURN_WIDE, RETURN_OBJECT, RETURN_VOID_NO_BARRIER,
+    THROW
+)
+
+private val moveOpcodes: EnumSet<Opcode> = EnumSet.of(
+    Opcode.MOVE, Opcode.MOVE_FROM16, Opcode.MOVE_16,
+    Opcode.MOVE_WIDE, Opcode.MOVE_WIDE_FROM16, Opcode.MOVE_WIDE_16,
+    Opcode.MOVE_OBJECT, Opcode.MOVE_OBJECT_FROM16, Opcode.MOVE_OBJECT_16
+)

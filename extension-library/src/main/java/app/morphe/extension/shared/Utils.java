@@ -72,6 +72,22 @@ public class Utils {
 
     private static boolean appIsUsingBoldIcons;
 
+    /**
+     * Shows a message in the app's own snackbar, set by the patch that hooks it.
+     */
+    public interface SnackbarPresenter {
+        /**
+         * Called on the main thread.
+         *
+         * @param longDuration Whether the message was asked to show for a long time.
+         * @return Whether the snackbar was shown. If not, the message is shown in a toast.
+         */
+        boolean showSnackbar(String message, boolean longDuration);
+    }
+
+    @Nullable
+    private static volatile SnackbarPresenter snackbarPresenter;
+
     private static final Pattern PUNCTUATION_PATTERN = Pattern.compile("\\p{P}+");
     private static final Pattern DIACRITICS_PATTERN = Pattern.compile("\\p{M}");
 
@@ -734,6 +750,56 @@ public class Utils {
     }
 
     /**
+     * @param presenter The app's own snackbar, or null to show toasts again.
+     */
+    public static void setSnackbarPresenter(@Nullable SnackbarPresenter presenter) {
+        snackbarPresenter = presenter;
+    }
+
+    /**
+     * Safe to call from any thread.
+     */
+    public static void showSnackbarShort(String message) {
+        showSnackbar(message, Toast.LENGTH_SHORT);
+    }
+
+    /**
+     * Safe to call from any thread.
+     */
+    public static void showSnackbarLong(String message) {
+        showSnackbar(message, Toast.LENGTH_LONG);
+    }
+
+    /**
+     * Shows the message in the app's own snackbar, set with {@link #setSnackbarPresenter}.
+     * Where the app cannot show it, such as with no snackbar set, while the app is in the
+     * background or on a screen of its own, the message is shown in a toast instead.
+     * <p>
+     * Safe to call from any thread.
+     *
+     * @param message  Message to show.
+     * @param duration Either {@link Toast#LENGTH_SHORT} or {@link Toast#LENGTH_LONG}.
+     */
+    public static void showSnackbar(String message, int duration) {
+        Objects.requireNonNull(message);
+        runOnMainThreadNowOrLater(() -> {
+            SnackbarPresenter presenter = snackbarPresenter;
+            if (presenter != null) {
+                try {
+                    if (presenter.showSnackbar(message, duration == Toast.LENGTH_LONG)) {
+                        Logger.printDebug(() -> "Showing snackbar: " + message);
+                        return;
+                    }
+                } catch (Exception ex) {
+                    Logger.printException(() -> "showSnackbar failure", ex);
+                }
+            }
+
+            showToast(message, duration);
+        });
+    }
+
+    /**
      * @return The current dark mode as set by any patch.
      *         Or if none is set, then the system dark mode status is returned.
      */
@@ -1076,9 +1142,12 @@ public class Utils {
 
     /**
      * @param maxSize The maximum number of elements to keep in the map.
-     * @param keepAccessOrder If true, the map maintains the order of insertion.
-     * @return A {@link LinkedHashMap} that automatically evicts the oldest entry
-     *        when the size exceeds {@code maxSize}.
+     * @param keepAccessOrder If true, entries are kept in access order and the least recently
+     *                        used entry is evicted (reads also change the order).
+     *                        If false, entries are kept in insertion order and the oldest
+     *                        inserted entry is evicted.
+     * @return A {@link LinkedHashMap} that automatically evicts an entry
+     *        when the size exceeds {@code maxSize}. The map is not thread safe.
      */
     public static <T, V> Map<T, V> createSizeRestrictedMap(int maxSize, boolean keepAccessOrder) {
         return new LinkedHashMap<>(2 * maxSize, 0.5f, keepAccessOrder) {

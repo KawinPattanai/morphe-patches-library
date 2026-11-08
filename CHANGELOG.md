@@ -1,3 +1,73 @@
+## [2.1.1](https://github.com/MorpheApp/morphe-patches-library/compare/v2.1.0...v2.1.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* Update to Patcher 2.3.0 ([#79](https://github.com/MorpheApp/morphe-patches-library/issues/79)) ([d9638d8](https://github.com/MorpheApp/morphe-patches-library/commit/d9638d81165d4ac0e6935221dd0ce1828d5cda7b))
+* Use patch() and global functions instead of patch types and contexts ([#76](https://github.com/MorpheApp/morphe-patches-library/issues/76)) ([5c0cf7c](https://github.com/MorpheApp/morphe-patches-library/commit/5c0cf7c21732c4e9026ade139ee4355c0c76fe3b))
+
+## [2.1.1-dev.2](https://github.com/MorpheApp/morphe-patches-library/compare/v2.1.1-dev.1...v2.1.1-dev.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* Update to Patcher 2.3.0 ([#79](https://github.com/MorpheApp/morphe-patches-library/issues/79)) ([d9638d8](https://github.com/MorpheApp/morphe-patches-library/commit/d9638d81165d4ac0e6935221dd0ce1828d5cda7b))
+
+## [2.1.1-dev.1](https://github.com/MorpheApp/morphe-patches-library/compare/v2.1.0...v2.1.1-dev.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* Use patch() and global functions instead of patch types and contexts ([#76](https://github.com/MorpheApp/morphe-patches-library/issues/76)) ([5c0cf7c](https://github.com/MorpheApp/morphe-patches-library/commit/5c0cf7c21732c4e9026ade139ee4355c0c76fe3b))
+
+# [2.1.0](https://github.com/MorpheApp/morphe-patches-library/compare/v2.0.1...v2.1.0) (2026-10-30)
+
+
+### Bug Fixes
+
+* **BytecodeUtils:** Literal override also overrides a read of a long written over the literal ([7f4362a](https://github.com/MorpheApp/morphe-patches-library/commit/7f4362a0ee7976e85ff7aeba691ff6ef749ea939))
+* **BytecodeUtils:** Literal override is inserted twice when the literals of two branches reach the same read ([31ddc3f](https://github.com/MorpheApp/morphe-patches-library/commit/31ddc3fe35fca474dad3d9a7e0a3a8feb4ccc1ab))
+
+
+### Features
+
+* **Utils:** Add snackbar methods that show the app's own snackbar, or a toast where the app cannot show it ([7a1b4c1](https://github.com/MorpheApp/morphe-patches-library/commit/7a1b4c1e558fbbeadb219cd3098906f426034e93))
+
+# [2.1.0-dev.2](https://github.com/MorpheApp/morphe-patches-library/compare/v2.1.0-dev.1...v2.1.0-dev.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **BytecodeUtils:** Literal override is inserted twice when the literals of two branches reach the same read ([31ddc3f](https://github.com/MorpheApp/morphe-patches-library/commit/31ddc3fe35fca474dad3d9a7e0a3a8feb4ccc1ab))
+
+# [2.1.0-dev.1](https://github.com/MorpheApp/morphe-patches-library/compare/v2.0.2-dev.1...v2.1.0-dev.1) (2026-10-28)
+
+
+### Features
+
+* **Utils:** Add snackbar methods that show the app's own snackbar, or a toast where the app cannot show it ([7a1b4c1](https://github.com/MorpheApp/morphe-patches-library/commit/7a1b4c1e558fbbeadb219cd3098906f426034e93))
+
+## [2.0.2-dev.1](https://github.com/MorpheApp/morphe-patches-library/compare/v2.0.1...v2.0.2-dev.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **BytecodeUtils:** Literal override also overrides a read of a long written over the literal ([7f4362a](https://github.com/MorpheApp/morphe-patches-library/commit/7f4362a0ee7976e85ff7aeba691ff6ef749ea939))
+
+## [2.0.1](https://github.com/MorpheApp/morphe-patches-library/compare/v2.0.0...v2.0.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* Remove code now provided by patcher 2.0 ([a7f516d](https://github.com/MorpheApp/morphe-patches-library/commit/a7f516d5e610f14c0affa770238e841386b62e68))
+
+## [2.0.1-dev.1](https://github.com/MorpheApp/morphe-patches-library/compare/v2.0.0...v2.0.1-dev.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* Remove code now provided by patcher 2.0 ([a7f516d](https://github.com/MorpheApp/morphe-patches-library/commit/a7f516d5e610f14c0affa770238e841386b62e68))
+
 # [2.0.0](https://github.com/MorpheApp/morphe-patches-library/compare/v1.8.0...v2.0.0) (2026-10-22)
 
 
