@@ -1,3 +1,24 @@
+# [2.2.0-dev.4](https://github.com/MorpheApp/morphe-patches-library/compare/v2.2.0-dev.3...v2.2.0-dev.4) (2026-11-10)
+
+
+### Features
+
+* **Spoof signature:** Spoof installed packages, and report the original signature of other apps patched with the same key ([8e3f599](https://github.com/MorpheApp/morphe-patches-library/commit/8e3f599cde33253b83f16cd25c19880e329ec2f1))
+
+# [2.2.0-dev.3](https://github.com/MorpheApp/morphe-patches-library/compare/v2.2.0-dev.2...v2.2.0-dev.3) (2026-11-09)
+
+
+### Bug Fixes
+
+* **Logger:** Add exception if debug ([910fadf](https://github.com/MorpheApp/morphe-patches-library/commit/910fadf328f4345b9c87a486f4504241cef70d0c))
+
+# [2.2.0-dev.2](https://github.com/MorpheApp/morphe-patches-library/compare/v2.2.0-dev.1...v2.2.0-dev.2) (2026-11-09)
+
+
+### Features
+
+* **Logger:** Add verbose logging, replace the debug setting with a debug level, and allow log messages to return null to log nothing ([bdf32ee](https://github.com/MorpheApp/morphe-patches-library/commit/bdf32ee4c81d1bb458022b2675dc38b4e9710d0f))
+
 # [2.2.0-dev.1](https://github.com/MorpheApp/morphe-patches-library/compare/v2.1.1...v2.2.0-dev.1) (2026-11-08)
 
 
