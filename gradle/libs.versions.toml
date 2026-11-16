@@ -1,4 +1,4 @@
-# Dependencies must also be added to LicensesDialog.java
+﻿# Dependencies must also be added to LicensesDialog.java
 
 [versions]
 agp = "9.1.0"
@@ -6,11 +6,7 @@ annotation = "1.10.0"
 gson = "2.15.0"
 junit = "4.13.2"
 kotlin = "2.4.21"
-<<<<<<< HEAD
-morphe-patcher = "2.4.0-dev.4"
-=======
 morphe-patcher = "2.4.0"
->>>>>>> upstream/dev
 #noinspection GradleDependency
 smali = "4220ae75f7"
 
